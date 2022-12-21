@@ -3,6 +3,8 @@ library(ggplot2)
 library(baseballr)
 library(readr)
 
+savantData <- read_csv("SavantData.csv")
+
 mlbplayerids <- baseballr::chadwick_player_lu()
 
 strip_id <- mlbplayerids %>% 
