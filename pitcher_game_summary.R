@@ -1,5 +1,16 @@
 library(tidyverse)
 library(ggplot2)
+library(baseballr)
+library(ggpubr)
+library(mlbplotR)
+library(cfbplotR)
+library(ggtext)
+library(gt)
+library(gtExtras)
+library(bstfun)
+library(patchwork)
+
+#be sure to set wd to source file
 
 #to get one individual start
 pitcher_summary_names <- function (player_first_name, player_last_name, Date) {
@@ -12,7 +23,7 @@ pitcher_summary_names <- function (player_first_name, player_last_name, Date) {
   
   data1 <- baseballr::scrape_statcast_savant(start_date = Date, end_date = Date)
   
-  mlbplayerids <- read_csv("C:/Users/ajpat/Downloads/mlbplayerids.csv")
+  mlbplayerids <- read_csv("/Users/ajaypatel/Downloads/mlbplayerids.csv")
   
   player_id_df <- mlbplayerids %>% 
     filter(name_first == player_first_name, name_last == player_last_name, !is.na(key_mlbam),
@@ -69,17 +80,17 @@ pitcher_summary_names <- function (player_first_name, player_last_name, Date) {
     pull(espn_headshot)
   
   
-  if(length(headshot) == 0) {
+  if(length(headshot) == 0 || is.na(headshot)) {
     headshot = "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a6/Major_League_Baseball_logo.svg/2560px-Major_League_Baseball_logo.svg.png"
   }
   
   
   loc_chart <- ggplot() +
     geom_point(data = player, aes(x = plate_x, y = plate_z, color = Pitch), 
-               size = 2.5, alpha = 0.6) +
+               size = 2.5, alpha = 0.4) +
     stat_ellipse(data = player, aes(x = plate_x, y = plate_z, color = Pitch,
                                     fill = Pitch), geom = "polygon",
-                 level = 0.4, alpha = 0.1) +
+                 level = 0.4, alpha = 0.4) +
     geom_path(data = sz, aes(x = x, y = z)) +
     geom_path(data = sz1, aes(x = x1, y = z1), linetype = "dashed", alpha = 0.6) +
     geom_path(data = sz2, aes(x = x2, y = z2), linetype = "dashed", alpha = 0.6) +
@@ -92,6 +103,7 @@ pitcher_summary_names <- function (player_first_name, player_last_name, Date) {
       y = "Feet From Home Plate On Y Axis"
     ) +
     xlim(-2.5, 2.5) +
+    ylim(0, 5) +
     coord_equal() +
     theme(legend.position = "top",
           legend.title = element_blank(),
@@ -100,6 +112,8 @@ pitcher_summary_names <- function (player_first_name, player_last_name, Date) {
                   title = "Location",
                   image_height = 55) +
     theme_title_image(size = 14, hjust = 0.25, vjust = 0.25) 
+  
+  
   
   #ggsave("pitcher_pitch.png", loc_chart, dpi = "retina", bg = "white", height = 8, width = 8)
 
@@ -113,9 +127,9 @@ pitcher_summary_names <- function (player_first_name, player_last_name, Date) {
     mutate(pfx_z = pfx_z * 12, pfx_x = pfx_x *12) %>% 
     select(player_name, pitcher, plate_x, plate_z, pfx_x, pfx_z, Pitch) %>%
     ggplot(aes(x = pfx_x, y = pfx_z, group = Pitch)) +
-    geom_point(aes(color = Pitch), alpha = 0.6) +
+    geom_point(aes(color = Pitch), alpha = 0.4) +
     stat_ellipse(aes(x = pfx_x, y = pfx_z, color = Pitch, fill = Pitch), geom = "polygon",
-                 level = 0.6, alpha = 0.1)+
+                 level = 0.6, alpha = 0.4)+
     theme_minimal() +
     theme(
       legend.position = "none",
@@ -170,6 +184,14 @@ pitcher_summary_names <- function (player_first_name, player_last_name, Date) {
                      "foul")
   whiffs_vector <- c("swinging_strike", "swinging_strike_blocked", "foul_tip")
   
+  #add in xwoba
+  player <- player %>% 
+    mutate(xwOBA = case_when(
+      !is.na(woba_value) & is.na(estimated_woba_using_speedangle) ~ woba_value,
+      !is.na(estimated_woba_using_speedangle) ~ estimated_woba_using_speedangle,
+      TRUE ~ NA
+    ))
+  
   #stats from savant
   adv_summary <- player %>% 
     group_by(Pitch) %>% 
@@ -181,7 +203,8 @@ pitcher_summary_names <- function (player_first_name, player_last_name, Date) {
               csw = sum(csw) / n(),
               swings = sum(swings),
               whiffs = sum(whiff) / swings,
-              ev_allowed = mean(launch_speed[type=="X"], na.rm = TRUE)) %>% 
+              ev_allowed = mean(launch_speed[type=="X"], na.rm = TRUE),
+              xwOBA = mean(xwOBA, na.rm = TRUE)) %>% 
     select(-swings)
   
   table1 <- summary_bs %>% 
@@ -276,6 +299,8 @@ pitcher_summary_names <- function (player_first_name, player_last_name, Date) {
     ) %>% 
     gt_theme_538() %>% 
     as_ggplot()
+  
+  
   table2 <- adv_summary %>% 
     arrange(-used) %>% 
     gt() %>% 
@@ -302,6 +327,10 @@ pitcher_summary_names <- function (player_first_name, player_last_name, Date) {
     fmt_number(
       columns = c(ev_allowed, velocity),
       decimals = 1
+    ) %>% 
+    fmt_number(
+      columns = xwOBA,
+      decimals = 3
     ) %>% 
     fmt_number(
       columns = spin_rate,
@@ -365,9 +394,27 @@ pitcher_summary_names <- function (player_first_name, player_last_name, Date) {
         rows = ev_allowed > 90
       )
     ) %>% 
+    tab_style(
+        style = list(
+          cell_fill(color ="#E39FF6")
+        ),
+        locations = cells_body(
+          columns = xwOBA,
+          rows = xwOBA > 0.340
+        )
+      ) %>% 
+      tab_style(
+        style = list(
+          cell_fill(color ="#99EDC3")
+        ),
+        locations = cells_body(
+          columns = xwOBA,
+          rows = xwOBA < 0.300
+        )
+      ) %>% 
     gt_theme_538() %>% 
     sub_missing(
-      columns = 2:7,
+      columns = 2:8,
       missing_text = "---"
     ) %>% 
   as_ggplot()
@@ -378,37 +425,30 @@ pitcher_summary_names <- function (player_first_name, player_last_name, Date) {
     plot_annotation(
       title = paste(player_id_df$name_first," ",player_id_df$name_last,"'s Game Summary Against ",
                     player$opp_team, sep = ''),
-      caption = "Data: @baseballR | @ajaypatell8",
+      caption = "Data: @baseballR | @ajaypatel8_",
       subtitle = paste(player$game_date),
       theme = theme(plot.title = element_text(hjust = 0.5, size = 18),
                     plot.subtitle = element_text(hjust = 0.5),
-                    legend.position = "top"
+                    legend.position = "top",
+                    plot.caption = element_text(hjust = 0.965)
       )) + 
     plot_layout(guides = "collect") 
   
   #save
-  ggsave("pitcher_summary.png", final, dpi = 'retina', width = 8, height = 8)
+  ggsave("/Users/ajaypatel/Downloads/RFiles/baseball/SPSummaries/pitcher_summary.png", final, dpi = 'retina', width = 7, height = 8)
   
 
 }
 
-pitcher_summary_names("Hunter", "Brown", "2023-04-26")
-
+pitcher_summary_names("Cody", "Morris", "2022-09-18")
 
 #FOR ALL STARTS
 #function to get all starts
-pitcher_summary_ids <- function (playerid, game_pk) {
+pitcher_summary_ids <- function (playerid, game_pk, Date) {
   
-  library(tidyverse)
-  library(ggplot2)
-  library(baseballr)
-  library(ggpubr)
-  library(mlbplotR)
+  data1 <- baseballr::scrape_statcast_savant(start_date = Date, end_date = Date)
   
-  
-  data1 <- baseballr::scrape_statcast_savant(start_date = Sys.Date() -1, end_date = Sys.Date() -1)
-  
-  mlbplayerids <- read_csv("C:/Users/ajpat/Downloads/mlbplayerids.csv")
+  mlbplayerids <- read_csv("/Users/ajaypatel/Downloads/mlbplayerids.csv")
   
   player_id_df <- mlbplayerids %>% 
     filter(key_mlbam == playerid)
@@ -455,9 +495,6 @@ pitcher_summary_ids <- function (playerid, game_pk) {
     mutate(opp_team = if_else(inning_topbot == "Top", away_team, home_team),
            team = if_else(inning_topbot == "Top", home_team, away_team))
   
-  library(cfbplotR)
-  library(ggtext)
-  
   #get player headshots
   headshot <- mlbplotR::load_headshots() %>% filter(savant_id == player_id_df$key_mlbam) %>% 
     pull(espn_headshot)
@@ -469,10 +506,10 @@ pitcher_summary_ids <- function (playerid, game_pk) {
   
   loc_chart <- ggplot() +
     geom_point(data = player, aes(x = plate_x, y = plate_z, color = Pitch), 
-               size = 2.5, alpha = 0.6) +
+               size = 2.5, alpha = 0.4) +
     stat_ellipse(data = player, aes(x = plate_x, y = plate_z, color = Pitch,
                                     fill = Pitch), geom = "polygon",
-                 level = 0.4, alpha = 0.1) +
+                 level = 0.4, alpha = 0.4) +
     geom_path(data = sz, aes(x = x, y = z)) +
     geom_path(data = sz1, aes(x = x1, y = z1), linetype = "dashed", alpha = 0.6) +
     geom_path(data = sz2, aes(x = x2, y = z2), linetype = "dashed", alpha = 0.6) +
@@ -485,6 +522,7 @@ pitcher_summary_ids <- function (playerid, game_pk) {
       y = "Feet From Home Plate On Y Axis"
     ) +
     xlim(-2.5, 2.5) +
+    ylim(0, 5) +
     coord_equal() +
     theme(legend.position = "top",
           legend.title = element_blank(),
@@ -507,9 +545,9 @@ pitcher_summary_ids <- function (playerid, game_pk) {
     mutate(pfx_z = pfx_z * 12, pfx_x = pfx_x *12) %>% 
     select(player_name, pitcher, plate_x, plate_z, pfx_x, pfx_z, Pitch) %>%
     ggplot(aes(x = pfx_x, y = pfx_z, group = Pitch)) +
-    geom_point(aes(color = Pitch), alpha = 0.6) +
+    geom_point(aes(color = Pitch), alpha = 0.4) +
     stat_ellipse(aes(x = pfx_x, y = pfx_z, color = Pitch, fill = Pitch), geom = "polygon",
-                 level = 0.6, alpha = 0.1)+
+                 level = 0.6, alpha = 0.4)+
     theme_minimal() +
     theme(
       legend.position = "none",
@@ -531,10 +569,7 @@ pitcher_summary_ids <- function (playerid, game_pk) {
   #ggsave("pitcher_chart.png", dpi = 'retina', width = 8, height = 8)
   
   #make box score table
-  library(gt)
-  library(gtExtras)
-  library(bstfun)
-  
+
   #basic box score stats
   summary <- baseballr::mlb_player_game_stats(person_id = player_id_df$key_mlbam, game_pk = game_pk) %>% 
     filter(group == "pitching") %>% 
@@ -561,6 +596,13 @@ pitcher_summary_ids <- function (playerid, game_pk) {
                      "foul")
   whiffs_vector <- c("swinging_strike", "swinging_strike_blocked", "foul_tip")
   
+  player <- player %>% 
+    mutate(xwOBA = case_when(
+      !is.na(woba_value) & is.na(estimated_woba_using_speedangle) ~ woba_value,
+      !is.na(estimated_woba_using_speedangle) ~ estimated_woba_using_speedangle,
+      TRUE ~ NA
+    ))
+  
   #stats from savant
   adv_summary <- player %>% 
     group_by(Pitch) %>% 
@@ -568,11 +610,13 @@ pitcher_summary_ids <- function (playerid, game_pk) {
            swings = if_else(description %in% swings_vector, 1, 0),
            whiff = if_else(description %in% whiffs_vector, 1, 0)) %>% 
     summarise(used = n()/nrow(player),
-              velocity = mean(release_speed), spin_rate = mean(release_spin_rate),
+              velocity = mean(release_speed, na.rm = TRUE), 
+              spin_rate = mean(release_spin_rate, na.rm = TRUE),
               csw = sum(csw) / n(),
               swings = sum(swings),
               whiffs = sum(whiff) / swings,
-              ev_allowed = mean(launch_speed[type=="X"], na.rm = TRUE)) %>% 
+              ev_allowed = mean(launch_speed[type=="X"], na.rm = TRUE),
+              xwOBA = mean(xwOBA, na.rm = TRUE)) %>% 
     select(-swings)
   
   table1 <- summary_bs %>% 
@@ -667,6 +711,8 @@ pitcher_summary_ids <- function (playerid, game_pk) {
     ) %>% 
     gt_theme_538() %>% 
     as_ggplot()
+  
+  
   table2 <- adv_summary %>% 
     arrange(-used) %>% 
     gt() %>% 
@@ -693,6 +739,10 @@ pitcher_summary_ids <- function (playerid, game_pk) {
     fmt_number(
       columns = c(ev_allowed, velocity),
       decimals = 1
+    ) %>% 
+    fmt_number(
+      columns = xwOBA, 
+      decimals = 3
     ) %>% 
     fmt_number(
       columns = spin_rate,
@@ -756,24 +806,43 @@ pitcher_summary_ids <- function (playerid, game_pk) {
         rows = ev_allowed > 90
       )
     ) %>% 
+    tab_style(
+      style = list(
+        cell_fill(color ="#E39FF6")
+      ),
+      locations = cells_body(
+        columns = xwOBA,
+        rows = xwOBA > 0.340
+      )
+    ) %>% 
+    tab_style(
+      style = list(
+        cell_fill(color ="#99EDC3")
+      ),
+      locations = cells_body(
+        columns = xwOBA,
+        rows = xwOBA < 0.300
+      )
+    ) %>% 
     gt_theme_538() %>% 
     sub_missing(
-      columns = 2:7,
+      columns = 2:8,
       missing_text = "---"
     ) %>% 
     as_ggplot()
   
-  library(patchwork)
+
   
   final <- (loc_chart + mov_chart) / (table1 / table2) +
     plot_annotation(
       title = paste(player_id_df$name_first," ",player_id_df$name_last,"'s Game Summary Against ",
                     player$opp_team, sep = ''),
-      caption = "Data: @baseballR | @ajaypatell8",
+      caption = "Data: @baseballR | @ajaypatel8_",
       subtitle = paste(player$game_date),
       theme = theme(plot.title = element_text(hjust = 0.5, size = 18),
                     plot.subtitle = element_text(hjust = 0.5),
-                    legend.position = "top"
+                    legend.position = "top",
+                    plot.caption = element_text(hjust = 0.965)
       )) + 
     plot_layout(guides = "collect") 
   
@@ -783,12 +852,11 @@ pitcher_summary_ids <- function (playerid, game_pk) {
   return (final)
 }
 
-
 #get all pitchers started
-game_pks <- baseballr::mlb_game_pks(date = Sys.Date() - 1, level_ids = 1) %>% pull(unique(game_pk))
+game_pks <- baseballr::mlb_game_pks(date = "2023-05-27", level_ids = 1) %>% pull(unique(game_pk))
 
 #get ids
-mlbplayerids <- read_csv("C:/Users/ajpat/Downloads/mlbplayerids.csv")
+mlbplayerids <- read_csv("/Users/ajaypatel/Downloads/mlbplayerids.csv")
 
 #loop to make all summaries
 for(game_pk in game_pks) {
@@ -798,10 +866,18 @@ for(game_pk in game_pks) {
   for(playerid in playerids) {
     playerName <- starters %>% filter(id == playerid) %>% pull(fullName)
     playerName <- str_replace_all(playerName, " ", "")
-    plot <- pitcher_summary_ids(playerid, game_pk)
-    ggsave(paste("C:/Users/ajpat/Downloads/SPSummaries/", date,"/", playerName, ".png" ,sep = ''), 
-           plot, dpi = 'retina', width = 8, 
+    #change this to sys date when using it
+    Date = '2023-05-27'
+    plot <- pitcher_summary_ids(playerid, game_pk, Date)
+    ggsave(paste("/Users/ajaypatel/Downloads/RFiles/baseball/SPSummaries/", date,"/", playerName, ".png" ,sep = ''), 
+           plot, dpi = 'retina', width = 7, 
            height = 8)
   }
 }
 
+playerid = 605200
+game_pk = 717991
+
+pitcher_summary_ids(playerid, game_pk, "2023-05-27")
+
+  
